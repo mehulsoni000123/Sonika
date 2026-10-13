@@ -8,10 +8,17 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { config, paths } from "../config.js";
 import { PlanSchema } from "./schema.js";
 import { normalizeTimeline, describeTimeline, clipId, round3 } from "../timeline.js";
+import { anthropicKey } from "../settings.js";
 
 let client = null;
-function getClient() {
-  if (!client) client = new Anthropic();
+let clientKey = "";
+async function getClient() {
+  const key = await anthropicKey();
+  if (!key) throw new Error("No Claude API key yet. Open Settings (gear icon on the projects screen) and paste your Anthropic API key.");
+  if (!client || clientKey !== key) {
+    client = new Anthropic({ apiKey: key });
+    clientKey = key;
+  }
   return client;
 }
 
@@ -108,7 +115,7 @@ export function planToTimeline(plan, existing) {
 async function askClaude(project, userBlocks, report) {
   if (config.mockAi) return mockPlan(project);
   report(0.1, "Claude is watching the footage");
-  const stream = getClient().beta.messages.stream({
+  const stream = (await getClient()).beta.messages.stream({
     model: config.model,
     max_tokens: 32000,
     betas: ["server-side-fallback-2026-07-01"],
@@ -123,7 +130,15 @@ async function askClaude(project, userBlocks, report) {
     chars += t.length;
     report(Math.min(0.9, 0.3 + chars / 20000), "Claude is building the cut");
   });
-  const msg = await stream.finalMessage();
+  let msg;
+  try {
+    msg = await stream.finalMessage();
+  } catch (err) {
+    if (err instanceof Anthropic.AuthenticationError) throw new Error("Your Claude API key was rejected. Open Settings on the projects screen and paste a valid key from console.anthropic.com.");
+    if (err instanceof Anthropic.RateLimitError) throw new Error("Claude is rate-limited right now. Wait a minute and try again.");
+    if (err instanceof Anthropic.APIError) throw new Error(`Claude API error ${err.status}: ${err.message}`);
+    throw err;
+  }
   if (msg.stop_reason === "refusal") throw new Error(`Claude declined this request${msg.stop_details?.explanation ? `: ${msg.stop_details.explanation}` : ""}`);
   if (msg.stop_reason === "max_tokens") throw new Error("Claude's plan was cut off (max_tokens). Try a shorter brief or fewer files.");
   const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");

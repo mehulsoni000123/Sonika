@@ -32,11 +32,15 @@ async function showProjects() {
   state.health = health;
   state.drive = drive;
   $("statusLine").innerHTML = [
-    `<span class="pill ${health.anthropic ? "ok" : "bad"}">${health.mockAi ? "Claude: mock mode" : health.anthropic ? `Claude: ${health.model}` : "Claude: ANTHROPIC_API_KEY missing"}</span>`,
-    `<span class="pill ${drive?.connected ? "ok" : drive?.configured ? "warn" : "bad"}">${drive?.connected ? `Drive: ${drive.user?.emailAddress || "connected"}` : drive?.configured ? "Drive: not connected" : "Drive: not configured"}</span>`,
+    `<span class="pill ${health.anthropic ? "ok" : "bad"}">${health.mockAi ? "Claude: mock mode" : health.anthropic ? `Claude: ready` : "Claude: add your API key in Settings"}</span>`,
+    `<span class="pill ${drive?.connected ? "ok" : "warn"}">${drive?.connected ? `Drive online: ${drive.user?.emailAddress || "connected"}` : "Drive: use your Drive folder on this PC"}</span>`,
     `<span class="pill">${health.concurrency} render lanes</span>`,
-    drive?.configured && !drive.connected ? `<a class="btn sm" href="/auth/google">Connect Google Drive</a>` : "",
+    drive?.configured && !drive.connected ? `<a class="btn sm" href="/auth/google">Connect Google Drive online</a>` : "",
   ].join("");
+  if (!health.anthropic && !sessionStorage.getItem("sonika-setup-shown")) {
+    sessionStorage.setItem("sonika-setup-shown", "1");
+    openSettings(true);
+  }
   const cards = $("projectCards");
   cards.innerHTML = "";
   const nw = document.createElement("div");
@@ -70,6 +74,42 @@ async function newProject() {
   location.hash = `#/p/${p.id}`;
 }
 $("newProjectBtn").onclick = newProject;
+$("settingsBtn").onclick = () => openSettings(false);
+
+async function openSettings(firstRun) {
+  const st = await api.settings();
+  const roots = await api.localRoots().catch(() => ({ driveCandidates: [] }));
+  const body = `
+    ${firstRun ? `<p style="margin:0 0 12px"><b>Welcome to Sonika.</b> One thing to set up: Claude needs an API key to edit for you. Everything else is optional.</p>` : ""}
+    <h3>1 · Claude API key</h3>
+    <p class="hint">Get one at <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com → API keys</a> (create key, copy, paste below). Model: ${esc(st.model)}.</p>
+    <input type="password" id="stKey" placeholder="${st.anthropicKeySet ? `Saved: ${esc(st.anthropicKeyHint)} — paste a new key to replace it` : "sk-ant-…"}" />
+    <h3 style="margin-top:16px">2 · Google Drive folder on this PC (recommended)</h3>
+    <p class="hint">If Google Drive for desktop is installed, Sonika reads your footage straight from that folder. ${roots.driveCandidates?.length ? `Found: ${roots.driveCandidates.map(esc).join(", ")}` : "No Drive folder found automatically; type the path if you have one (e.g. G:\\My Drive)."}</p>
+    <input type="text" id="stDrive" value="${esc(st.localDriveFolder || roots.driveCandidates?.[0] || "")}" placeholder="G:\\My Drive" />
+    <details style="margin-top:16px"><summary class="hint" style="cursor:pointer">Advanced: Google Drive online (OAuth) — only needed when Sonika runs on a server, not on your PC</summary>
+      <div class="fields2" style="margin-top:8px">
+        <div class="field"><label>Client ID</label><input type="text" id="stGid" value="${esc(st.googleClientId)}" /></div>
+        <div class="field"><label>Client secret</label><input type="password" id="stGsec" placeholder="${st.googleClientSecretSet ? "saved" : ""}" /></div>
+      </div>
+      <div class="field" style="margin-top:8px"><label>Redirect URI (add this in Google Cloud Console)</label><input type="text" id="stGuri" value="${esc(st.googleRedirectUri)}" /></div>
+    </details>`;
+  const r = await modal({
+    title: "Settings",
+    body,
+    ok: "Save",
+    collect: () => ({ anthropicApiKey: $("stKey").value || undefined, localDriveFolder: $("stDrive").value, googleClientId: $("stGid").value, googleClientSecret: $("stGsec").value || undefined, googleRedirectUri: $("stGuri").value }),
+  });
+  if (!r) return;
+  try {
+    await api.saveSettings(r);
+    toast("Settings saved");
+    state.health = null;
+    if (!$("projects").hidden) showProjects();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
 
 // ---------------- editor ----------------
 let player, tl;
@@ -181,6 +221,7 @@ function initEditor() {
     $("fileInput").value = "";
   };
   $("driveBtn").onclick = openDriveBrowser;
+  $("localBtn").onclick = openLocalBrowser;
   $("driveLinkBtn").onclick = async () => {
     const link = $("driveLink").value.trim();
     if (!link) return;
@@ -660,7 +701,7 @@ async function showHistory() {
 async function openDriveBrowser() {
   state.drive = await api.driveStatus().catch(() => null);
   if (!state.drive?.configured) {
-    return modal({ title: "Google Drive", body: `<p>Drive isn't configured on this server yet. Set <span class="kbd">GOOGLE_CLIENT_ID</span>, <span class="kbd">GOOGLE_CLIENT_SECRET</span> and <span class="kbd">GOOGLE_REDIRECT_URI</span> (see README), restart, then come back here.</p>`, ok: null });
+    return modal({ title: "Google Drive online", body: `<p>On your own PC the easy way is <b>＋ Add footage</b>, which reads your Google Drive desktop folder directly.</p><p class="hint">Online Drive access (for a server) needs a Google OAuth client id and secret: open Settings on the projects screen → Advanced.</p>`, ok: null });
   }
   if (!state.drive.connected) {
     return modal({ title: "Google Drive", body: `<p>Connect your Google account so Sonika can read your footage and write renders back.</p><a class="btn primary" href="/auth/google">Connect Google Drive</a>`, ok: null });
@@ -721,6 +762,76 @@ async function openDriveBrowser() {
   for (const j of jobs) state.jobs.set(j.id, j);
   renderJobs();
   toast(`Importing ${jobs.length} file${jobs.length > 1 ? "s" : ""} from Drive`);
+}
+
+// ---------------- Local folder browser (this PC / Drive desktop folder) ----------------
+async function openLocalBrowser() {
+  const { roots } = await api.localRoots();
+  const sel = new Map();
+  let current = null;
+  const render = async (root) => {
+    const list = root.querySelector("#llist");
+    const crumbs = root.querySelector("#lcrumbs");
+    list.innerHTML = `<p class="faint">Loading…</p>`;
+    if (!current) {
+      crumbs.textContent = "Choose where your footage is";
+      list.innerHTML = "";
+      for (const r of roots) {
+        const d = document.createElement("div");
+        d.className = "ditem";
+        d.innerHTML = `<div class="ic">${r.name.startsWith("Google Drive") ? "▲" : "📁"}</div><span class="n"></span><span class="faint mono"></span>`;
+        d.querySelector(".n").textContent = r.name;
+        d.querySelector(".faint").textContent = r.path;
+        d.onclick = () => { current = r.path; render(root); };
+        list.appendChild(d);
+      }
+      return;
+    }
+    let data;
+    try {
+      data = await api.localList(current);
+    } catch (err) {
+      list.innerHTML = `<p class="faint">${esc(err.message)}</p>`;
+      return;
+    }
+    crumbs.innerHTML = `<button data-up="root">Places</button> / <button data-up="parent">⬆ up</button> <span class="mono">${esc(data.path)}</span>`;
+    crumbs.querySelector('[data-up="root"]').onclick = () => { current = null; render(root); };
+    crumbs.querySelector('[data-up="parent"]').onclick = () => { if (data.parent) { current = data.parent; render(root); } else { current = null; render(root); } };
+    list.innerHTML = data.items.length ? "" : `<p class="faint">No folders or media files here.</p>`;
+    const mediaFiles = data.items.filter((i) => !i.folder);
+    if (mediaFiles.length > 1) {
+      const all = document.createElement("div");
+      all.className = "ditem";
+      all.innerHTML = `<div class="ic">☑</div><span class="n">Select all ${mediaFiles.length} files in this folder</span>`;
+      all.onclick = () => { for (const f of mediaFiles) sel.set(f.path, f); render(root); updateCount(root); };
+      list.appendChild(all);
+    }
+    for (const f of data.items) {
+      const d = document.createElement("div");
+      d.className = `ditem ${sel.has(f.path) ? "sel" : ""}`;
+      d.innerHTML = `<div class="ic">${f.folder ? "📁" : f.kind === "audio" ? "♫" : f.kind === "image" ? "🖼" : "▣"}</div><span class="n"></span><span class="faint mono">${f.folder ? "" : `${(f.size / 1e6).toFixed(1)} MB`}</span>`;
+      d.querySelector(".n").textContent = f.name;
+      d.onclick = () => {
+        if (f.folder) { current = f.path; render(root); }
+        else { sel.has(f.path) ? sel.delete(f.path) : sel.set(f.path, f); d.classList.toggle("sel"); updateCount(root); }
+      };
+      list.appendChild(d);
+    }
+  };
+  const updateCount = (root) => { root.querySelector("#lcount").textContent = sel.size ? `Add ${sel.size} file${sel.size > 1 ? "s" : ""}` : "Add"; };
+  const files = await modal({
+    title: "Add footage from this PC",
+    body: `<div class="crumbs" id="lcrumbs"></div><div class="dlist" id="llist" style="margin-top:8px"></div>`,
+    ok: "Add",
+    okId: "lcount",
+    onOpen: (root) => render(root),
+    collect: () => [...sel.keys()],
+  });
+  if (!files?.length) return;
+  const { jobs } = await api.importLocal(state.project.id, files);
+  for (const j of jobs) state.jobs.set(j.id, j);
+  renderJobs();
+  toast(`Adding ${jobs.length} file${jobs.length > 1 ? "s" : ""}`);
 }
 
 // ---------------- SSE ----------------

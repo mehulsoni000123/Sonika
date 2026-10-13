@@ -9,13 +9,24 @@ Sonika is a self-hosted, invideo-style editing app:
 
 Everything runs in one Node process plus FFmpeg. No database, no build step.
 
-## Run it
+## Easiest: the Windows app (no coding)
+
+1. Download `Sonika-windows.zip` (build it with `scripts/build-windows.sh`, or grab it from the project's releases), unzip it anywhere, e.g. `C:\Sonika`.
+2. Double-click **Create Desktop Shortcut.bat**. A Sonika icon appears on your Desktop.
+3. Double-click the icon. Your browser opens the editor. On first run a **Settings** window asks for your Claude API key (from console.anthropic.com) and shows the Google Drive folder it found on your PC. Save.
+4. New project → **＋ Add footage** → pick clips from your Drive folder → Claude tab → brief → **Build the first cut** → adjust → **Render final**.
+
+Node, FFmpeg and a font are bundled; nothing else to install. Data lives in `%LOCALAPPDATA%\Sonika`.
+
+## Run it from source
 
 ```bash
 cp .env.example .env     # fill in ANTHROPIC_API_KEY, APP_PASSWORD, Google OAuth
 npm install
 npm start                # http://localhost:8080
 ```
+
+Settings (Claude key, Drive folder, optional Google OAuth) can also be entered in the app's ⚙ Settings screen instead of `.env`.
 
 Or with Docker (FFmpeg included):
 
@@ -56,7 +67,10 @@ server/
   timeline.js  timeline schema (zod), validation/normalization, ripple, transitions
   render.js    timeline → ffmpeg: parallel segments (text burned in) → concat/xfade + music mix
   ai/          Claude planner (structured outputs): brief → plan, chat → revised plan
-  drive.js     Google OAuth, browse/search, download, upload
+  drive.js     Google OAuth (online), browse/search, download, upload
+  local.js     browse folders on the machine (Google Drive desktop folder, drives) and copy files in
+  settings.js  settings saved from the app (API key, Drive folder, OAuth client)
+scripts/build-windows.sh  builds the portable Windows app folder + zip
   store.js     JSON project store with revisions and checkpoints
   jobs.js      in-process job queue with progress events
 test/          node:test suites (timeline rules, full render with synthetic footage, mock planner)

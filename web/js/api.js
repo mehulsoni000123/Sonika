@@ -35,6 +35,11 @@ export const api = {
     return req("POST", `/api/projects/${id}/upload`, fd, true);
   },
   importDrive: (id, body) => req("POST", `/api/projects/${id}/import-drive`, body),
+  importLocal: (id, paths) => req("POST", `/api/projects/${id}/import-local`, { paths }),
+  localRoots: () => req("GET", "/api/local/roots"),
+  localList: (path) => req("GET", `/api/local/list?${new URLSearchParams({ path })}`),
+  settings: () => req("GET", "/api/settings"),
+  saveSettings: (body) => req("PUT", "/api/settings", body),
   updateMedia: (id, mid, body) => req("PATCH", `/api/projects/${id}/media/${mid}`, body),
   deleteMedia: (id, mid, force) => req("DELETE", `/api/projects/${id}/media/${mid}${force ? "?force=1" : ""}`),
   saveTimeline: (id, timeline, revision, label) => req("PUT", `/api/projects/${id}/timeline`, { timeline, revision, label }),

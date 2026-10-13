@@ -4,27 +4,30 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { google } from "googleapis";
-import { config, paths } from "./config.js";
+import { drive as driveApi, auth as googleAuth } from "@googleapis/drive";
+import { paths } from "./config.js";
 import { loadGoogleTokens, saveGoogleTokens } from "./store.js";
+import { googleCreds } from "./settings.js";
 
 const SCOPES = ["https://www.googleapis.com/auth/drive"];
 const MEDIA_Q = "(mimeType contains 'video/' or mimeType contains 'audio/' or mimeType contains 'image/' or mimeType = 'application/vnd.google-apps.folder')";
 
-export function isConfigured() {
-  return !!(config.google.clientId && config.google.clientSecret);
+export async function isConfigured() {
+  const g = await googleCreds();
+  return !!(g.clientId && g.clientSecret);
 }
 
-function oauth() {
-  return new google.auth.OAuth2(config.google.clientId, config.google.clientSecret, config.google.redirectUri);
+async function oauth() {
+  const g = await googleCreds();
+  return new googleAuth.OAuth2(g.clientId, g.clientSecret, g.redirectUri);
 }
 
-export function authUrl() {
-  return oauth().generateAuthUrl({ access_type: "offline", prompt: "consent", scope: SCOPES });
+export async function authUrl() {
+  return (await oauth()).generateAuthUrl({ access_type: "offline", prompt: "consent", scope: SCOPES });
 }
 
 export async function handleCallback(code) {
-  const client = oauth();
+  const client = await oauth();
   const { tokens } = await client.getToken(code);
   const existing = await loadGoogleTokens();
   await saveGoogleTokens({ ...existing, ...tokens, refresh_token: tokens.refresh_token || existing?.refresh_token });
@@ -37,14 +40,14 @@ export async function disconnect() {
 async function driveClient() {
   const tokens = await loadGoogleTokens();
   if (!tokens) throw new Error("Google Drive is not connected");
-  const client = oauth();
+  const client = await oauth();
   client.setCredentials(tokens);
   client.on("tokens", async (t) => saveGoogleTokens({ ...tokens, ...t }));
-  return google.drive({ version: "v3", auth: client });
+  return driveApi({ version: "v3", auth: client });
 }
 
 export async function status() {
-  if (!isConfigured()) return { configured: false, connected: false };
+  if (!(await isConfigured())) return { configured: false, connected: false };
   const tokens = await loadGoogleTokens();
   if (!tokens) return { configured: true, connected: false };
   try {

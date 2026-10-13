@@ -304,7 +304,7 @@ export async function renderTimeline(project, { quality = "preview", renderId, r
 
   report(0.8, "Assembling + mixing audio");
   const listFile = path.join(workDir, "concat.txt");
-  await fs.writeFile(listFile, segFiles.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join("\n") + "\n");
+  await fs.writeFile(listFile, segFiles.map((f) => `file '${f.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`).join("\n") + "\n");
   const outFile = path.join(paths.renders(project.id), `${renderId}.mp4`);
   const args = assemblyArgs({ segments, segFiles, timeline, media, projectId: project.id, quality, listFile, outFile, W, H, FPS });
   await ffmpeg(args, { signal, onProgress: (s) => report(0.8 + 0.2 * (totalDur ? s / totalDur : 0), "Assembling + mixing audio") });

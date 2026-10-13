@@ -11,6 +11,8 @@ import * as drive from "./drive.js";
 import { renderTimeline } from "./render.js";
 import { normalizeTimeline, timelineDuration } from "./timeline.js";
 import { planEdit, reviseEdit } from "./ai/planner.js";
+import * as settings from "./settings.js";
+import * as local from "./local.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -51,7 +53,35 @@ async function loadProject(req, res) {
 const publicProject = (p) => ({ ...p, history: p.history.map(({ timeline, ...h }) => h), duration: timelineDuration(p.timeline) });
 
 // ---------- projects ----------
-app.get("/api/health", (req, res) => res.json({ ok: true, model: config.model, mockAi: config.mockAi, concurrency: config.concurrency, drive: drive.isConfigured(), anthropic: !!process.env.ANTHROPIC_API_KEY || config.mockAi }));
+app.get("/api/health", wrap(async (req, res) => res.json({ ok: true, model: config.model, mockAi: config.mockAi, concurrency: config.concurrency, drive: await drive.isConfigured(), anthropic: !!(await settings.anthropicKey()) || config.mockAi, platform: process.platform })));
+
+// ---------- settings (edited from the app, no config files needed) ----------
+app.get("/api/settings", wrap(async (req, res) => res.json(await settings.publicSettings())));
+app.put("/api/settings", wrap(async (req, res) => {
+  const b = req.body || {};
+  const patch = {};
+  if (typeof b.anthropicApiKey === "string") patch.anthropicApiKey = b.anthropicApiKey.trim();
+  if (typeof b.googleClientId === "string") patch.googleClientId = b.googleClientId.trim();
+  if (typeof b.googleClientSecret === "string") patch.googleClientSecret = b.googleClientSecret.trim();
+  if (typeof b.googleRedirectUri === "string") patch.googleRedirectUri = b.googleRedirectUri.trim();
+  if (typeof b.localDriveFolder === "string") patch.localDriveFolder = b.localDriveFolder.trim();
+  await settings.saveSettings(patch);
+  res.json(await settings.publicSettings());
+}));
+
+// ---------- local files (this machine: Google Drive desktop folder, Downloads, drives) ----------
+app.get("/api/local/roots", wrap(async (req, res) => {
+  const s = await settings.loadSettings();
+  res.json({ roots: local.roots(s.localDriveFolder), driveCandidates: local.driveFolderCandidates() });
+}));
+app.get("/api/local/list", wrap(async (req, res) => {
+  if (!req.query.path) return res.status(400).json({ error: "path required" });
+  try {
+    res.json(await local.list(String(req.query.path)));
+  } catch (err) {
+    res.status(400).json({ error: `Can't open that folder: ${err.message}` });
+  }
+}));
 
 app.get("/api/projects", wrap(async (req, res) => res.json(await store.listProjects())));
 
@@ -125,6 +155,29 @@ app.post("/api/projects/:id/import-drive", wrap(async (req, res) => {
       report(0.01, "Downloading from Drive");
       const local = await drive.download(fileId, p.id, `${store.newId("d")}_${media.safeName(meta.name)}`, (f) => report(f * 0.4, "Downloading from Drive"));
       const m = await media.ingest(p.id, local, meta.name, { type: "drive", driveId: fileId }, (f, msg) => report(0.4 + f * 0.6, msg));
+      const fresh = await store.getProject(p.id);
+      fresh.media.push(m);
+      await store.saveProject(fresh);
+      return { mediaId: m.id };
+    });
+    started.push(jobs.publicJob(job));
+  }
+  res.status(202).json({ jobs: started });
+}));
+
+app.post("/api/projects/:id/import-local", wrap(async (req, res) => {
+  const p = await loadProject(req, res);
+  if (!p) return;
+  const files = (req.body.paths || []).filter((x) => typeof x === "string" && x);
+  if (!files.length) return res.status(400).json({ error: "No files given" });
+  const started = [];
+  for (const src of files) {
+    const name = path.basename(src);
+    const job = jobs.createJob("ingest", p.id, { label: name });
+    jobs.run(job, async (j, report) => {
+      report(0.01, "Copying file");
+      const localFile = await local.copyIn(src, paths.media(p.id), `${store.newId("l")}_${media.safeName(name)}`, (f) => report(f * 0.3, "Copying file"));
+      const m = await media.ingest(p.id, localFile, name, { type: "local", path: src }, (f, msg) => report(0.3 + f * 0.7, msg));
       const fresh = await store.getProject(p.id);
       fresh.media.push(m);
       await store.saveProject(fresh);
@@ -301,10 +354,10 @@ app.get("/api/projects/:id/events", (req, res) => {
 
 // ---------- Google Drive ----------
 app.get("/api/drive/status", wrap(async (req, res) => res.json(await drive.status())));
-app.get("/auth/google", (req, res) => {
-  if (!drive.isConfigured()) return res.status(400).send("Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET first.");
-  res.redirect(drive.authUrl());
-});
+app.get("/auth/google", wrap(async (req, res) => {
+  if (!(await drive.isConfigured())) return res.status(400).send("Add the Google client id and secret in Settings first.");
+  res.redirect(await drive.authUrl());
+}));
 app.get("/auth/google/callback", wrap(async (req, res) => {
   if (!req.query.code) return res.status(400).send("Missing code");
   await drive.handleCallback(String(req.query.code));
@@ -326,5 +379,5 @@ app.use((err, req, res, next) => {
 
 await fs.mkdir(paths.projects, { recursive: true });
 app.listen(config.port, () => {
-  console.log(`Sonika listening on http://localhost:${config.port}  (model ${config.model}${config.mockAi ? ", MOCK_AI" : ""}, ${config.concurrency} render lanes, Drive ${drive.isConfigured() ? "configured" : "not configured"})`);
+  console.log(`Sonika listening on http://localhost:${config.port}  (model ${config.model}${config.mockAi ? ", MOCK_AI" : ""}, ${config.concurrency} render lanes)`);
 });

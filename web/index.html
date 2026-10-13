@@ -15,10 +15,10 @@
     <div class="hero">
       <div>
         <div class="brand">Sonika <small>cloud editor</small></div>
-        <h1>Claude cuts. You adjust. It renders in the cloud.</h1>
-        <p>Drop footage from Google Drive, give Claude a brief, get a timeline you can trim, move and rewrite — then render and send it back to Drive.</p>
+        <h1>Claude cuts. You adjust. It renders.</h1>
+        <p>Add footage from your Google Drive folder, tell Claude what the video is, get a timeline you can trim, move and rewrite, then render the MP4.</p>
       </div>
-      <button class="btn primary" id="newProjectBtn">＋ New project</button>
+      <div class="row"><button class="btn" id="settingsBtn">⚙ Settings</button><button class="btn primary" id="newProjectBtn">＋ New project</button></div>
     </div>
     <div class="status-line" id="statusLine"></div>
     <div class="cards" id="projectCards"></div>
@@ -46,13 +46,14 @@
       <button data-tab="renders">Renders</button>
     </div>
     <div class="body" id="tab-media">
+      <button class="btn primary" id="localBtn" style="width:100%">＋ Add footage (this PC / Google Drive folder)</button>
       <div class="row">
-        <button class="btn grow" id="uploadBtn">Upload files</button>
-        <button class="btn grow" id="driveBtn">Google Drive</button>
+        <button class="btn grow" id="uploadBtn">Upload from browser</button>
+        <button class="btn grow" id="driveBtn">Drive online</button>
         <input type="file" id="fileInput" multiple accept="video/*,audio/*,image/*" hidden />
       </div>
       <div class="row">
-        <input type="text" id="driveLink" placeholder="Paste a Drive share link…" />
+        <input type="text" id="driveLink" placeholder="Paste a Drive share link (online)…" />
         <button class="btn sm" id="driveLinkBtn">Import</button>
       </div>
       <div class="jobs" id="ingestJobs"></div>
