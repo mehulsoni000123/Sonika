@@ -11,6 +11,10 @@ APP="$OUT/Sonika-windows"
 rm -rf "$APP" "$WORK"
 mkdir -p "$WORK" "$APP/bin" "$APP/app" "$APP/fonts"
 
+LITE="${LITE:-0}"
+if [ "$LITE" = "1" ]; then
+echo "→ lite build: node/ffmpeg are downloaded by Setup.bat on first run"
+else
 echo "→ node $NODE_VERSION (win-x64)"
 curl -fsSL -o "$WORK/node.zip" "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-win-x64.zip"
 unzip -q -j "$WORK/node.zip" "node-v$NODE_VERSION-win-x64/node.exe" "node-v$NODE_VERSION-win-x64/LICENSE" -d "$WORK/node"
@@ -23,6 +27,7 @@ unzip -q "$WORK/ffmpeg.zip" -d "$WORK/ffmpeg"
 FFDIR="$(find "$WORK/ffmpeg" -maxdepth 1 -type d -name 'ffmpeg-*' | head -1)"
 cp "$FFDIR/bin/ffmpeg.exe" "$FFDIR/bin/ffprobe.exe" "$APP/bin/"
 cp "$FFDIR/LICENSE" "$APP/bin/LICENSE-ffmpeg.txt" 2>/dev/null || true
+fi
 
 echo "→ app + production dependencies"
 cp -r "$ROOT/server" "$ROOT/web" "$ROOT/package.json" "$ROOT/package-lock.json" "$APP/app/"
@@ -54,6 +59,52 @@ for n in sizes:
 imgs[0].save(out, format="ICO", sizes=[(n, n) for n in sizes], append_images=imgs[1:])
 PY
 
+echo "→ setup (first-run download of node + ffmpeg)"
+cat > "$APP/setup.ps1" <<PS1
+\$ErrorActionPreference = "Stop"
+\$root = Split-Path -Parent \$MyInvocation.MyCommand.Path
+\$bin = Join-Path \$root "bin"
+\$tmp = Join-Path \$env:TEMP "sonika-setup"
+New-Item -ItemType Directory -Force \$bin | Out-Null
+New-Item -ItemType Directory -Force \$tmp | Out-Null
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+function Get-File(\$url, \$dest, \$label) {
+  Write-Host ""
+  Write-Host "Downloading \$label ..." -ForegroundColor Yellow
+  try { Import-Module BitsTransfer -ErrorAction Stop; Start-BitsTransfer -Source \$url -Destination \$dest -Description \$label }
+  catch { \$ProgressPreference = "SilentlyContinue"; Invoke-WebRequest \$url -OutFile \$dest -UseBasicParsing }
+}
+if (!(Test-Path "\$bin\\node.exe")) {
+  Get-File "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-win-x64.zip" "\$tmp\\node.zip" "Node.js runtime (about 30 MB)"
+  Expand-Archive "\$tmp\\node.zip" -DestinationPath "\$tmp\\node" -Force
+  Copy-Item "\$tmp\\node\\node-v$NODE_VERSION-win-x64\\node.exe" "\$bin\\node.exe"
+}
+if (!(Test-Path "\$bin\\ffmpeg.exe") -or !(Test-Path "\$bin\\ffprobe.exe")) {
+  Get-File "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" "\$tmp\\ffmpeg.zip" "FFmpeg video engine (about 90 MB)"
+  Expand-Archive "\$tmp\\ffmpeg.zip" -DestinationPath "\$tmp\\ffmpeg" -Force
+  \$ff = Get-ChildItem "\$tmp\\ffmpeg" -Directory | Select-Object -First 1
+  Copy-Item (Join-Path \$ff.FullName "bin\\ffmpeg.exe") "\$bin\\ffmpeg.exe"
+  Copy-Item (Join-Path \$ff.FullName "bin\\ffprobe.exe") "\$bin\\ffprobe.exe"
+}
+Remove-Item \$tmp -Recurse -Force -ErrorAction SilentlyContinue
+Write-Host ""
+Write-Host "Setup complete. Sonika will open in your browser." -ForegroundColor Green
+Start-Sleep -Seconds 2
+PS1
+
+cat > "$APP/Setup.bat" <<'BAT'
+@echo off
+title Sonika setup
+echo This one-time setup downloads the video engine (about 120 MB). Please wait...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup.ps1"
+if errorlevel 1 (
+  echo.
+  echo Setup failed. Check your internet connection and run Setup.bat again.
+  pause
+  exit /b 1
+)
+BAT
+
 echo "→ launchers"
 cat > "$APP/Sonika.vbs" <<'VBS'
 ' Sonika launcher: starts the editor silently and opens it in your browser.
@@ -75,6 +126,10 @@ Function IsUp()
   IsUp = (Err.Number = 0 And http.Status = 200)
   Err.Clear
 End Function
+
+If Not (fso.FileExists(root & "\bin\node.exe") And fso.FileExists(root & "\bin\ffmpeg.exe") And fso.FileExists(root & "\bin\ffprobe.exe")) Then
+  If sh.Run("""" & root & "\Setup.bat""", 1, True) <> 0 Then WScript.Quit 1
+End If
 
 If Not IsUp() Then
   Set env = sh.Environment("PROCESS")
@@ -146,7 +201,8 @@ SONIKA - Claude cuts, you adjust, it renders
 FIRST TIME
   1. Unzip this folder anywhere (for example C:\Sonika). Don't unzip into a OneDrive folder.
   2. Double-click "Create Desktop Shortcut.bat"  -> a Sonika icon appears on your Desktop.
-  3. Double-click the Sonika icon. Your browser opens the editor.
+  3. Double-click the Sonika icon. The first time, a black window downloads the video
+     engine (about 120 MB, one time only). Then your browser opens the editor.
   4. A Settings window appears: paste your Claude API key (console.anthropic.com -> API keys)
      and confirm your Google Drive folder. Click Save.
 
@@ -166,6 +222,7 @@ TXT
 
 echo "→ zip"
 rm -rf "$WORK"
-(cd "$OUT" && rm -f Sonika-windows.zip && zip -qr Sonika-windows.zip Sonika-windows)
-du -sh "$OUT/Sonika-windows.zip" "$APP"
-echo "done: $OUT/Sonika-windows.zip"
+ZIP="Sonika-windows.zip"; [ "$LITE" = "1" ] && ZIP="Sonika-windows-setup.zip"
+(cd "$OUT" && rm -f "$ZIP" && zip -qr "$ZIP" Sonika-windows)
+du -sh "$OUT/$ZIP" "$APP"
+echo "done: $OUT/$ZIP"
