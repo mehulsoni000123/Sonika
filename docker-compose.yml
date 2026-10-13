@@ -1,0 +1,19 @@
+services:
+  sonika:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - sonika-data:/data
+    restart: unless-stopped
+    # For a GPU box with NVENC, uncomment and set FFMPEG_VIDEO_ENCODER=h264_nvenc in .env:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{ driver: nvidia, count: all, capabilities: [gpu] }]
+
+volumes:
+  sonika-data:

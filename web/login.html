@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sonika — sign in</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="login">
+  <form id="f">
+    <div class="brand">Sonika</div>
+    <p class="muted" style="margin:0">Enter the app password to open the editor.</p>
+    <input type="password" id="p" placeholder="Password" autofocus />
+    <button class="btn primary" type="submit">Open editor</button>
+    <div id="e" class="faint"></div>
+  </form>
+</div>
+<script>
+document.getElementById("f").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const r = await fetch("/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: document.getElementById("p").value }) });
+  if (r.ok) location.href = "/";
+  else document.getElementById("e").textContent = "Wrong password";
+};
+</script>
+</body>
+</html>

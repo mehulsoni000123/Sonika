@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sonika</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<!-- ============ Projects ============ -->
+<section id="projects">
+  <div class="inner">
+    <div class="hero">
+      <div>
+        <div class="brand">Sonika <small>cloud editor</small></div>
+        <h1>Claude cuts. You adjust. It renders in the cloud.</h1>
+        <p>Drop footage from Google Drive, give Claude a brief, get a timeline you can trim, move and rewrite — then render and send it back to Drive.</p>
+      </div>
+      <button class="btn primary" id="newProjectBtn">＋ New project</button>
+    </div>
+    <div class="status-line" id="statusLine"></div>
+    <div class="cards" id="projectCards"></div>
+  </div>
+</section>
+
+<!-- ============ Editor ============ -->
+<section id="editor" hidden>
+  <div class="topbar">
+    <button class="btn ghost" id="backBtn">← Projects</button>
+    <input class="name" id="projectName" />
+    <span class="pill" id="projectMeta"></span>
+    <span class="pill" id="revisionPill"></span>
+    <span class="grow"></span>
+    <span id="saveState" class="faint mono"></span>
+    <button class="btn ghost" id="historyBtn" title="Checkpoints">History</button>
+    <button class="btn" id="renderPreviewBtn" title="Fast 540p render from proxies">Render preview</button>
+    <button class="btn primary" id="renderFinalBtn">Render final</button>
+  </div>
+
+  <aside class="panel left">
+    <div class="tabs">
+      <button data-tab="media" class="active">Media</button>
+      <button data-tab="claude">Claude</button>
+      <button data-tab="renders">Renders</button>
+    </div>
+    <div class="body" id="tab-media">
+      <div class="row">
+        <button class="btn grow" id="uploadBtn">Upload files</button>
+        <button class="btn grow" id="driveBtn">Google Drive</button>
+        <input type="file" id="fileInput" multiple accept="video/*,audio/*,image/*" hidden />
+      </div>
+      <div class="row">
+        <input type="text" id="driveLink" placeholder="Paste a Drive share link…" />
+        <button class="btn sm" id="driveLinkBtn">Import</button>
+      </div>
+      <div class="jobs" id="ingestJobs"></div>
+      <div class="media-grid" id="mediaGrid"></div>
+      <p class="hint">Drag a file onto the timeline, or click ＋ to add it at the playhead. Add a transcript to a clip so Claude can cut on the words.</p>
+    </div>
+    <div class="body" id="tab-claude" hidden>
+      <div id="briefBox">
+        <h3>Brief</h3>
+        <textarea id="brief" placeholder="What is this video? Who is it for? Target length, platform, tone, what to say on screen… e.g. “45s Instagram reel for a Mississauga listing, hook with the price, lower third with the agent name, upbeat.”"></textarea>
+        <button class="btn primary" id="planBtn" style="margin-top:8px;width:100%">Build the first cut</button>
+      </div>
+      <div class="chat" id="chat"></div>
+      <div id="aiStatus"></div>
+      <div class="composer">
+        <textarea id="instruction" placeholder="Ask Claude to change the cut… “tighten the intro to 3s”, “swap the second shot for the drone clip”, “add a lower third with my name at 0:05”"></textarea>
+        <div class="row" style="margin-top:6px">
+          <span class="hint grow">Claude edits the timeline; every change becomes a checkpoint you can restore.</span>
+          <button class="btn primary" id="reviseBtn">Send</button>
+        </div>
+      </div>
+    </div>
+    <div class="body" id="tab-renders" hidden>
+      <div class="jobs" id="renderJobs"></div>
+      <div id="renderList"></div>
+    </div>
+  </aside>
+
+  <main class="center">
+    <div class="stage">
+      <div class="frame" id="frame">
+        <video id="vidA" playsinline preload="auto"></video>
+        <video id="vidB" playsinline preload="auto"></video>
+        <img id="imgEl" alt="" />
+        <div class="overlay" id="overlay"></div>
+        <div class="empty" id="frameEmpty">Add media and ask Claude for a first cut</div>
+      </div>
+    </div>
+    <div class="transport">
+      <button class="btn icon" id="toStart" title="Home">⏮</button>
+      <button class="btn icon primary" id="playBtn" title="Space">▶</button>
+      <div class="time"><b id="tCur">00:00.00</b> / <span id="tTot">00:00.00</span></div>
+      <input type="range" class="scrub" id="scrub" min="0" max="1000" value="0" />
+      <button class="btn sm" id="addTextBtn" title="T">＋ Text</button>
+      <button class="btn sm" id="splitBtn" title="S">Split</button>
+      <button class="btn sm" id="deleteBtn" title="Delete">Delete</button>
+      <button class="btn sm ghost" id="undoBtn" title="Ctrl+Z">Undo</button>
+    </div>
+  </main>
+
+  <aside class="panel right">
+    <div class="tabs"><button class="active">Inspector</button></div>
+    <div class="body" id="inspector"></div>
+  </aside>
+
+  <div class="timeline">
+    <div class="tl-tools">
+      <span class="faint mono" id="tlInfo"></span>
+      <span class="grow"></span>
+      <button class="btn sm ghost" id="closeGapsBtn">Close gaps</button>
+      <button class="btn sm ghost" id="fitBtn">Fit</button>
+      <input type="range" class="zoom" id="zoom" min="4" max="400" value="40" />
+    </div>
+    <div class="tl-scroll" id="tlScroll">
+      <div class="tl-inner" id="tlInner">
+        <div class="ruler" id="ruler"></div>
+        <div id="tracks"></div>
+        <div class="playhead" id="playhead"></div>
+        <div class="snapline" id="snapline" hidden></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div id="modalRoot"></div>
+<div id="toastRoot"></div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>
